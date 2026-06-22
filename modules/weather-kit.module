@@ -6,8 +6,8 @@
 DOMAIN,weather-analytics-events.apple.com,REJECT-DROP
 
 [Script]
-[WeatherKit] Availability = type=http-response, pattern=^https?:\/\/weatherkit\.apple\.com\/api\/v1\/availability\/, requires-body=1, engine=webview, script-path=https://gnehs.github.io/surge-modules/scripts/weather-kit.js
-[WeatherKit] Weather = type=http-response, pattern=^https?:\/\/weatherkit\.apple\.com\/api\/v2\/weather\/, requires-body=1, binary-body-mode=1, engine=webview, script-path=https://gnehs.github.io/surge-modules/scripts/weather-kit.js
+[WeatherKit] Availability = type=http-response, pattern=^https?:\/\/weatherkit\.apple\.com\/api\/v1\/availability\/, requires-body=1, engine=webview, script-path=https://orsmile.github.io/surge-modules/scripts/weather-kit.js
+[WeatherKit] Weather = type=http-response, pattern=^https?:\/\/weatherkit\.apple\.com\/api\/v2\/weather\/, requires-body=1, binary-body-mode=1, engine=webview, script-path=https://orsmile.github.io/surge-modules/scripts/weather-kit.js
 
 [MITM]
 hostname = %APPEND% weatherkit.apple.com
