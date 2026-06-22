@@ -4,6 +4,7 @@
 [Script]
 [3D 驗證修正] NCCC = type=http-response, pattern=^https:\/\/webauthen\.nccc\.com\.tw\/acsn2_kernel\/2\/browser\/challenge-otp$,script-path=https://gnehs.github.io/surge-modules/scripts/nccc-3d.js, requires-body=true
 [3D 驗證修正] 國泰 = type=http-response, pattern=^https:\/\/3ds\.cathaybk\.com\.tw\/(.*),script-path=https://gnehs.github.io/surge-modules/scripts/nccc-3d.js, requires-body=true
+[3D 驗證修正] 財金 FISC = type=http-response, pattern=^https:\/\/www\.acs3d\.fisc\.com\.tw\/3ds2\/browser\/challenge-otp(.*)$,script-path=https://gnehs.github.io/surge-modules/scripts/nccc-3d.js, requires-body=true
 
 [MITM]
-hostname = %APPEND% webauthen.nccc.com.tw, 3ds.cathaybk.com.tw
+hostname = %APPEND% webauthen.nccc.com.tw, 3ds.cathaybk.com.tw, www.acs3d.fisc.com.tw
