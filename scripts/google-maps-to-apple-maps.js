@@ -94,8 +94,10 @@ function valueToString(value) {
 
 function firstUrl(value) {
   const text = normalize(value).replace(/\\\//g, "/").trim();
-  const match = text.match(/https?:\/\/[^\s<>"']+/i);
-  return (match ? match[0] : text).replace(/[),.;]+$/, "");
+  const match = text.match(/https?:\/\/[^\s<>"'\]\)]+/i);
+  return (match ? match[0] : text)
+    .replace(/\.\(null.*$/i, "")
+    .replace(/[),.;\]]+$/, "");
 }
 
 function resolveUrl(url, visited, depth, callback) {
@@ -208,6 +210,11 @@ function extractCoordinates(input) {
 
   match = text.match(/data-(?:latitude|lat)=["']?(-?\d+(?:\.\d+)?)[^>]{0,300}?data-(?:longitude|lng|lon)=["']?(-?\d+(?:\.\d+)?)/i);
   if (match) return validPoint(match[1], match[2], "data-latitude/longitude");
+
+  // Current Google Maps bootstrap state: [[altitude,lng,lat],[0,0,0],[width,height],zoom].
+  // The surrounding arrays keep this from mistaking arbitrary numeric triples for a point.
+  match = text.match(/\[\[\s*-?\d+(?:\.\d+)?\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]\s*,\s*\[\s*0\s*,\s*0\s*,\s*0\s*\]\s*,\s*\[\s*\d+\s*,\s*\d+\s*\]\s*,\s*\d+(?:\.\d+)?\s*\]/i);
+  if (match) return validPoint(match[2], match[1], "bootstrap-map-state");
 
   return null;
 }
