@@ -14,6 +14,7 @@
  */
 
 const LOG_PREFIX = "[GM2AM]";
+const LOG_STORE_KEY = "google-maps-to-apple-maps.last-log";
 const traceLines = [];
 const isHttpRequest = typeof $request !== "undefined" && $request && $request.url;
 const rawInput = isHttpRequest ? $request.url : getInput();
@@ -26,7 +27,7 @@ debugLog("start", {
 });
 
 if (!source) {
-  notifyFailure("沒有收到 Google Maps URL。" + diagnosticHint());
+  notifyFailure("沒有收到 Google Maps URL。");
 } else {
   resolveUrl(source, [], 0, function (point) {
     if (isHttpRequest) {
@@ -34,7 +35,7 @@ if (!source) {
     } else if (point) {
       notifySuccess(point);
     } else {
-      notifyFailure("Google 頁面沒有可解析的精確座標；未使用地址搜尋。" + diagnosticHint());
+      notifyFailure("Google 頁面沒有可解析的精確座標；未使用地址搜尋。");
     }
   });
 }
@@ -252,6 +253,7 @@ function appleUrl(point) {
 function notifySuccess(point) {
   const coordinate = point.lat + "," + point.lng;
   debugLog("success", { coordinate: coordinate, parser: point.source });
+  saveTrace("success");
   $notification.post(
     "Google → Apple Maps",
     coordinate + "  (" + point.source + ")",
@@ -264,21 +266,30 @@ function notifySuccess(point) {
 function notifyFailure(message) {
   if (isHttpRequest) {
     debugLog("passthrough", { reason: message });
+    saveTrace("passthrough");
     $done({});
     return;
   }
 
   debugLog("failure", { reason: message });
-  $notification.post("Google → Apple Maps", "轉換失敗", message);
+  const fullTrace = saveTrace("failure");
+  $notification.post(
+    "Google → Apple Maps",
+    "轉換失敗（點一下複製診斷）",
+    message + "\n" + diagnosticHint(),
+    { action: "clipboard", text: fullTrace }
+  );
   $done();
 }
 
 function finishHttpRequest(point) {
   if (!point) {
+    saveTrace("passthrough");
     $done({});
     return;
   }
 
+  saveTrace("redirect");
   $done({
     response: {
       status: 302,
@@ -325,9 +336,29 @@ function debugLog(stage, details) {
   console.log(LOG_PREFIX + " " + line);
 }
 
+function saveTrace(result) {
+  const text = [
+    "Google → Apple Maps diagnostic",
+    "time=" + new Date().toISOString(),
+    "result=" + result
+  ].concat(traceLines.map(function (line) {
+    return LOG_PREFIX + " " + line;
+  })).join("\n");
+
+  try {
+    if (typeof $persistentStore !== "undefined") {
+      $persistentStore.write(text, LOG_STORE_KEY);
+    }
+  } catch (error) {
+    console.log(LOG_PREFIX + " store-error " + valueToString(error));
+  }
+
+  return text;
+}
+
 function diagnosticHint() {
   const tail = traceLines.slice(-2).join(" | ");
-  return "\n診斷：" + clip(tail || "無記錄", 420) + "\n完整記錄請在 Surge 日誌搜尋 " + LOG_PREFIX;
+  return "診斷：" + clip(tail || "無記錄", 420);
 }
 
 function describeType(value) {

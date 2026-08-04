@@ -4,6 +4,7 @@
 
 [Script]
 [Google → Apple] 分享/手動 = type=generic,script-path=https://orsmile.github.io/surge-modules/scripts/google-maps-to-apple-maps.js,script-update-interval=60,timeout=30,engine=webview,debug=true
+[Google → Apple] 查看上次日誌 = type=generic,script-path=https://orsmile.github.io/surge-modules/scripts/google-maps-to-apple-maps-log.js,script-update-interval=60,timeout=5,engine=jsc
 [Google → Apple] 網頁自動導向 = type=http-request,pattern=^https:\/\/maps\.app\.goo\.gl\/,script-path=https://orsmile.github.io/surge-modules/scripts/google-maps-to-apple-maps.js,script-update-interval=60,timeout=30,engine=webview,debug=true
 
 [MITM]
