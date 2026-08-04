@@ -15,6 +15,7 @@
 
 const LOG_PREFIX = "[GM2AM]";
 const LOG_STORE_KEY = "google-maps-to-apple-maps.last-log";
+const DESKTOP_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
 const traceLines = [];
 const isHttpRequest = typeof $request !== "undefined" && $request && $request.url;
 const rawInput = isHttpRequest ? $request.url : getInput();
@@ -126,7 +127,7 @@ function resolveUrl(url, visited, depth, callback) {
   $httpClient.get({
     url: url,
     headers: {
-      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      "User-Agent": DESKTOP_USER_AGENT,
       "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8"
     },
@@ -153,34 +154,119 @@ function resolveUrl(url, visited, depth, callback) {
       location || "",
       bodyText
     ].join("\n");
-    const point = extractCoordinates(page);
+    const previewUrl = extractPreviewUrl(bodyText, url);
 
-    if (point) {
-      debugLog("coordinate", {
-        depth: depth,
-        parser: point.source,
-        lat: point.lat,
-        lng: point.lng
+    if (previewUrl) {
+      debugLog("preview", { depth: depth, url: clip(previewUrl, 300) });
+      resolvePreview(previewUrl, depth, function (previewPoint) {
+        if (previewPoint) {
+          debugLog("coordinate", {
+            depth: depth,
+            parser: previewPoint.source,
+            lat: previewPoint.lat,
+            lng: previewPoint.lng,
+            name: clip(previewPoint.name, 120)
+          });
+          callback(previewPoint);
+          return;
+        }
+
+        continueResponse();
       });
-      callback(point);
       return;
     }
 
-    if (location) {
-      const nextUrl = absoluteUrl(location, url);
-      if (nextUrl && nextVisited.indexOf(nextUrl) === -1) {
-        debugLog("redirect", { depth: depth, nextUrl: clip(nextUrl, 300) });
-        resolveUrl(nextUrl, nextVisited, depth + 1, callback);
+    continueResponse();
+
+    function continueResponse() {
+      const point = extractCoordinates(page);
+
+      if (point) {
+        debugLog("coordinate", {
+          depth: depth,
+          parser: point.source,
+          lat: point.lat,
+          lng: point.lng
+        });
+        callback(point);
         return;
       }
-    }
 
-    debugLog("stop", {
+      if (location) {
+        const nextUrl = absoluteUrl(location, url);
+        if (nextUrl && nextVisited.indexOf(nextUrl) === -1) {
+          debugLog("redirect", { depth: depth, nextUrl: clip(nextUrl, 300) });
+          resolveUrl(nextUrl, nextVisited, depth + 1, callback);
+          return;
+        }
+      }
+
+      debugLog("stop", {
+        depth: depth,
+        reason: error ? "http-error" : "no-coordinate",
+        status: status || "none",
+        bodyLength: bodyText.length
+      });
+      callback(null);
+    }
+  });
+}
+
+function extractPreviewUrl(body, baseUrl) {
+  const text = String(body || "");
+  const match = text.match(/href=["'](\/maps\/preview\/place\?[^"']+)/i);
+  if (!match) return "";
+
+  return absoluteUrl(
+    match[1]
+      .replace(/&amp;/gi, "&")
+      .replace(/&quot;/gi, "\"")
+      .replace(/&#39;/gi, "'"),
+    baseUrl || "https://www.google.com/"
+  );
+}
+
+function resolvePreview(url, depth, callback) {
+  $httpClient.get({
+    url: url,
+    headers: {
+      "User-Agent": DESKTOP_USER_AGENT,
+      "Accept": "application/json,text/plain,*/*",
+      "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8"
+    },
+    timeout: 8
+  }, function (error, response, body) {
+    const status = response && (response.status || response.statusCode);
+    const bodyText = String(body || "");
+
+    debugLog("preview-response", {
       depth: depth,
-      reason: error ? "http-error" : "no-coordinate",
       status: status || "none",
+      error: error ? clip(valueToString(error), 180) : "",
       bodyLength: bodyText.length
     });
+
+    if (error || !bodyText) {
+      callback(null);
+      return;
+    }
+
+    try {
+      const jsonText = bodyText.replace(/^\)\]\}'\s*/, "");
+      const data = JSON.parse(jsonText);
+      const coordinates = data && data[4] && data[4][0];
+      const place = data && data[6];
+      const point = coordinates && validPoint(coordinates[2], coordinates[1], "google-preview");
+
+      if (point) {
+        point.name = place && typeof place[11] === "string" ? place[11] : "";
+        callback(point);
+        return;
+      }
+    } catch (parseError) {
+      debugLog("preview-parse-error", { error: clip(valueToString(parseError), 180) });
+    }
+
     callback(null);
   });
 }
@@ -210,11 +296,6 @@ function extractCoordinates(input) {
 
   match = text.match(/data-(?:latitude|lat)=["']?(-?\d+(?:\.\d+)?)[^>]{0,300}?data-(?:longitude|lng|lon)=["']?(-?\d+(?:\.\d+)?)/i);
   if (match) return validPoint(match[1], match[2], "data-latitude/longitude");
-
-  // Current Google Maps bootstrap state: [[altitude,lng,lat],[0,0,0],[width,height],zoom].
-  // The surrounding arrays keep this from mistaking arbitrary numeric triples for a point.
-  match = text.match(/\[\[\s*-?\d+(?:\.\d+)?\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]\s*,\s*\[\s*0\s*,\s*0\s*,\s*0\s*\]\s*,\s*\[\s*\d+\s*,\s*\d+\s*\]\s*,\s*\d+(?:\.\d+)?\s*\]/i);
-  if (match) return validPoint(match[2], match[1], "bootstrap-map-state");
 
   return null;
 }
@@ -254,7 +335,9 @@ function validPoint(latText, lngText, sourceType) {
 }
 
 function appleUrl(point) {
-  return "https://maps.apple.com/place?coordinate=" + encodeURIComponent(point.lat + "," + point.lng);
+  const coordinate = point.lat + "," + point.lng;
+  const label = point.name || coordinate;
+  return "https://maps.apple.com/?ll=" + encodeURIComponent(coordinate) + "&q=" + encodeURIComponent(label);
 }
 
 function notifySuccess(point) {
