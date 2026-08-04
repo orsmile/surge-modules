@@ -14,7 +14,7 @@
  */
 
 const isHttpRequest = typeof $request !== "undefined" && $request && $request.url;
-const source = isHttpRequest ? String($request.url) : firstUrl(getInput());
+const source = isHttpRequest ? firstUrl($request.url) : firstUrl(getInput());
 
 if (!source) {
   notifyFailure("沒有收到 Google Maps URL");
@@ -41,12 +41,51 @@ function getInput() {
     value = $argument;
   }
 
-  return String(value || "").trim();
+  return valueToString(value).trim();
+}
+
+function valueToString(value) {
+  if (value === null || typeof value === "undefined") return "";
+
+  if (Array.isArray(value)) {
+    return value.map(valueToString).filter(Boolean).join("\n");
+  }
+
+  if (typeof value === "object") {
+    // Shortcuts may pass a URL as a structured content item instead of text.
+    const fields = [
+      "url",
+      "URL",
+      "href",
+      "absoluteString",
+      "text",
+      "value",
+      "content",
+      "string",
+      "link"
+    ];
+
+    for (const field of fields) {
+      if (value[field]) {
+        const candidate = valueToString(value[field]);
+        if (candidate) return candidate;
+      }
+    }
+
+    try {
+      return JSON.stringify(value);
+    } catch (_) {
+      return String(value);
+    }
+  }
+
+  return String(value);
 }
 
 function firstUrl(value) {
-  const match = String(value || "").match(/https?:\/\/[^\s<>]+/i);
-  return (match ? match[0] : String(value || "")).replace(/[),.;]+$/, "");
+  const text = normalize(value).replace(/\\\//g, "/").trim();
+  const match = text.match(/https?:\/\/[^\s<>"']+/i);
+  return (match ? match[0] : text).replace(/[),.;]+$/, "");
 }
 
 function resolveUrl(url, visited, depth, callback) {
@@ -55,19 +94,33 @@ function resolveUrl(url, visited, depth, callback) {
     return;
   }
 
+  // Full Google Maps URLs may already expose coordinates.
+  const directPoint = extractCoordinates(url);
+  if (directPoint) {
+    callback(directPoint);
+    return;
+  }
+
   const nextVisited = visited.concat(url);
 
   $httpClient.get({
     url: url,
     headers: {
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8"
     },
     "auto-redirect": false,
     timeout: 8
   }, function (_error, response, body) {
     const location = response && getHeader(response.headers, "location");
-    const page = [url, location || "", String(body || "")].join("\n");
+    const responseUrl = response && (response.url || response.finalUrl);
+    const page = [
+      url,
+      responseUrl || "",
+      location || "",
+      String(body || "")
+    ].join("\n");
     const point = extractCoordinates(page);
 
     if (point) {
@@ -99,17 +152,27 @@ function extractCoordinates(input) {
   match = text.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i);
   if (match) return validPoint(match[1], match[2], "@lat,lng");
 
-  // Current Google share pages can expose the point in a static-map URL.
-  match = text.match(/(?:[?&"']|\b)(?:center|ll|query|q)=(-?\d+(?:\.\d+)?)(?:,|%2c)(-?\d+(?:\.\d+)?)/i);
-  if (match) return validPoint(match[1], match[2], "center/ll/query");
+  // Query links and static-map metadata in current Google share pages.
+  match = text.match(/(?:[?&"'\s]|\b)(?:center|ll|query|q|destination|origin|latlng)=\s*(-?\d+(?:\.\d+)?)(?:\s*,\s*|%2c)(-?\d+(?:\.\d+)?)/i);
+  if (match) return validPoint(match[1], match[2], "query");
+
+  // Google responses may expose the point as JSON or HTML attributes.
+  match = text.match(/(?:["']?(?:latitude|lat)["']?\s*[:=]\s*)(-?\d+(?:\.\d+)?)[\s\S]{0,300}?(?:["']?(?:longitude|lng|lon)["']?\s*[:=]\s*)(-?\d+(?:\.\d+)?)/i);
+  if (match) return validPoint(match[1], match[2], "latitude/longitude");
+
+  match = text.match(/(?:["']?(?:longitude|lng|lon)["']?\s*[:=]\s*)(-?\d+(?:\.\d+)?)[\s\S]{0,300}?(?:["']?(?:latitude|lat)["']?\s*[:=]\s*)(-?\d+(?:\.\d+)?)/i);
+  if (match) return validPoint(match[2], match[1], "latitude/longitude");
+
+  match = text.match(/data-(?:latitude|lat)=["']?(-?\d+(?:\.\d+)?)[^>]{0,300}?data-(?:longitude|lng|lon)=["']?(-?\d+(?:\.\d+)?)/i);
+  if (match) return validPoint(match[1], match[2], "data-latitude/longitude");
 
   return null;
 }
 
 function normalize(value) {
-  let text = String(value || "");
+  let text = valueToString(value);
 
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 5; i++) {
     try {
       const decoded = decodeURIComponent(text);
       if (decoded === text) break;
@@ -123,8 +186,10 @@ function normalize(value) {
     .replace(/\\u003d/gi, "=")
     .replace(/\\u0026/gi, "&")
     .replace(/\\u002c/gi, ",")
+    .replace(/\\\//g, "/")
     .replace(/%2c/gi, ",")
-    .replace(/&amp;/gi, "&");
+    .replace(/&amp;/gi, "&")
+    .replace(/&#x2c;/gi, ",");
 }
 
 function validPoint(latText, lngText, sourceType) {
