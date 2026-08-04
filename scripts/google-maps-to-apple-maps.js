@@ -147,7 +147,8 @@ function resolveUrl(url, visited, depth, callback, retriedShortUrl) {
       error: error ? clip(valueToString(error), 180) : "",
       location: clip(location, 260),
       responseUrl: clip(responseUrl, 260),
-      bodyLength: bodyText.length
+      bodyLength: bodyText.length,
+      errorBody: Number(status) >= 400 ? clip(bodyText.replace(/\s+/g, " "), 240) : ""
     });
 
     if (isGoogleShortUrl(url) && !retriedShortUrl && !location && (error || Number(status) >= 400)) {
@@ -159,6 +160,21 @@ function resolveUrl(url, visited, depth, callback, retriedShortUrl) {
         userAgent: "iphone"
       });
       resolveUrl(retryUrl, visited, depth, callback, true);
+      return;
+    }
+
+    if (isGoogleShortUrl(url) && retriedShortUrl && !location && (error || Number(status) >= 400)) {
+      debugLog("head-short-url", { depth: depth, url: clip(url, 300) });
+      resolveShortUrlWithHead(url, depth, function (headLocation) {
+        if (headLocation) {
+          const nextUrl = absoluteUrl(headLocation, url);
+          debugLog("redirect", { depth: depth, method: "HEAD", nextUrl: clip(nextUrl, 300) });
+          resolveUrl(nextUrl, nextVisited, depth + 1, callback, false);
+          return;
+        }
+
+        continueResponse();
+      });
       return;
     }
 
@@ -242,6 +258,37 @@ function cleanGoogleShortUrl(value) {
   } catch (_) {
     return String(value || "").replace(/([?&])g_st=[^&#]*/gi, "$1").replace(/[?&]$/, "");
   }
+}
+
+function resolveShortUrlWithHead(url, depth, callback) {
+  if (!$httpClient.head) {
+    debugLog("head-response", { depth: depth, error: "unsupported" });
+    callback("");
+    return;
+  }
+
+  $httpClient.head({
+    url: url,
+    headers: {
+      "User-Agent": MOBILE_USER_AGENT,
+      "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+      "Cache-Control": "no-cache"
+    },
+    "auto-redirect": false,
+    timeout: 8
+  }, function (error, response) {
+    const status = response && (response.status || response.statusCode);
+    const location = response && getHeader(response.headers, "location");
+
+    debugLog("head-response", {
+      depth: depth,
+      status: status || "none",
+      error: error ? clip(valueToString(error), 180) : "",
+      location: clip(location, 260)
+    });
+
+    callback(location || "");
+  });
 }
 
 function extractPreviewUrl(body, baseUrl) {
