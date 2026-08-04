@@ -16,6 +16,7 @@
 const LOG_PREFIX = "[GM2AM]";
 const LOG_STORE_KEY = "google-maps-to-apple-maps.last-log";
 const DESKTOP_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
+const MOBILE_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 const traceLines = [];
 const isHttpRequest = typeof $request !== "undefined" && $request && $request.url;
 const rawInput = isHttpRequest ? $request.url : getInput();
@@ -101,7 +102,7 @@ function firstUrl(value) {
     .replace(/[),.;\]]+$/, "");
 }
 
-function resolveUrl(url, visited, depth, callback) {
+function resolveUrl(url, visited, depth, callback, retriedShortUrl) {
   if (depth > 4 || visited.indexOf(url) !== -1) {
     debugLog("stop", { depth: depth, reason: depth > 4 ? "max-depth" : "redirect-loop" });
     callback(null);
@@ -127,9 +128,10 @@ function resolveUrl(url, visited, depth, callback) {
   $httpClient.get({
     url: url,
     headers: {
-      "User-Agent": DESKTOP_USER_AGENT,
+      "User-Agent": retriedShortUrl && isGoogleShortUrl(url) ? MOBILE_USER_AGENT : DESKTOP_USER_AGENT,
       "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8"
+      "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+      "Cache-Control": "no-cache"
     },
     "auto-redirect": false,
     timeout: 8
@@ -147,6 +149,18 @@ function resolveUrl(url, visited, depth, callback) {
       responseUrl: clip(responseUrl, 260),
       bodyLength: bodyText.length
     });
+
+    if (isGoogleShortUrl(url) && !retriedShortUrl && !location && (error || Number(status) >= 400)) {
+      const retryUrl = cleanGoogleShortUrl(url);
+      debugLog("retry-short-url", {
+        depth: depth,
+        status: status || "none",
+        url: clip(retryUrl, 300),
+        userAgent: "iphone"
+      });
+      resolveUrl(retryUrl, visited, depth, callback, true);
+      return;
+    }
 
     const page = [
       url,
@@ -196,7 +210,7 @@ function resolveUrl(url, visited, depth, callback) {
         const nextUrl = absoluteUrl(location, url);
         if (nextUrl && nextVisited.indexOf(nextUrl) === -1) {
           debugLog("redirect", { depth: depth, nextUrl: clip(nextUrl, 300) });
-          resolveUrl(nextUrl, nextVisited, depth + 1, callback);
+          resolveUrl(nextUrl, nextVisited, depth + 1, callback, false);
           return;
         }
       }
@@ -210,6 +224,24 @@ function resolveUrl(url, visited, depth, callback) {
       callback(null);
     }
   });
+}
+
+function isGoogleShortUrl(value) {
+  try {
+    return new URL(value).hostname.toLowerCase() === "maps.app.goo.gl";
+  } catch (_) {
+    return /\/\/maps\.app\.goo\.gl\//i.test(String(value || ""));
+  }
+}
+
+function cleanGoogleShortUrl(value) {
+  try {
+    const url = new URL(value);
+    url.searchParams.delete("g_st");
+    return url.toString();
+  } catch (_) {
+    return String(value || "").replace(/([?&])g_st=[^&#]*/gi, "$1").replace(/[?&]$/, "");
+  }
 }
 
 function extractPreviewUrl(body, baseUrl) {
