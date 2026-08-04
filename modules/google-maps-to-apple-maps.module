@@ -1,0 +1,10 @@
+#!name=Google Maps → Apple Maps（精確座標）
+#!desc=從 Google Maps 分享短網址最終頁面擷取 lat,lng，轉成 Apple Maps 座標；無座標時不使用地址搜尋
+#!homepage=https://github.com/orsmile/surge-modules
+
+[Script]
+[Google → Apple] 分享/手動 = type=generic,script-path=https://orsmile.github.io/surge-modules/scripts/google-maps-to-apple-maps.js,timeout=30,engine=webview
+[Google → Apple] 網頁自動導向 = type=http-request,pattern=^https:\/\/maps\.app\.goo\.gl\/,script-path=https://orsmile.github.io/surge-modules/scripts/google-maps-to-apple-maps.js,timeout=30,engine=webview
+
+[MITM]
+hostname = %APPEND% maps.app.goo.gl
