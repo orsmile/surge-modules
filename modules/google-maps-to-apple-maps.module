@@ -3,8 +3,8 @@
 #!homepage=https://github.com/orsmile/surge-modules
 
 [Script]
-[Google → Apple] 分享/手動 = type=generic,script-path=https://orsmile.github.io/surge-modules/scripts/google-maps-to-apple-maps.js,timeout=30,engine=webview
-[Google → Apple] 網頁自動導向 = type=http-request,pattern=^https:\/\/maps\.app\.goo\.gl\/,script-path=https://orsmile.github.io/surge-modules/scripts/google-maps-to-apple-maps.js,timeout=30,engine=webview
+[Google → Apple] 分享/手動 = type=generic,script-path=https://orsmile.github.io/surge-modules/scripts/google-maps-to-apple-maps.js,script-update-interval=60,timeout=30,engine=webview,debug=true
+[Google → Apple] 網頁自動導向 = type=http-request,pattern=^https:\/\/maps\.app\.goo\.gl\/,script-path=https://orsmile.github.io/surge-modules/scripts/google-maps-to-apple-maps.js,script-update-interval=60,timeout=30,engine=webview,debug=true
 
 [MITM]
 hostname = %APPEND% maps.app.goo.gl

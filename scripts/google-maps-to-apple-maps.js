@@ -13,11 +13,20 @@
  * This script deliberately does not geocode or search by address.
  */
 
+const LOG_PREFIX = "[GM2AM]";
+const traceLines = [];
 const isHttpRequest = typeof $request !== "undefined" && $request && $request.url;
-const source = isHttpRequest ? firstUrl($request.url) : firstUrl(getInput());
+const rawInput = isHttpRequest ? $request.url : getInput();
+const source = firstUrl(rawInput);
+
+debugLog("start", {
+  mode: isHttpRequest ? "http-request" : "generic",
+  inputType: describeType(rawInput),
+  source: clip(source, 240)
+});
 
 if (!source) {
-  notifyFailure("沒有收到 Google Maps URL");
+  notifyFailure("沒有收到 Google Maps URL。" + diagnosticHint());
 } else {
   resolveUrl(source, [], 0, function (point) {
     if (isHttpRequest) {
@@ -25,7 +34,7 @@ if (!source) {
     } else if (point) {
       notifySuccess(point);
     } else {
-      notifyFailure("Google 頁面沒有可解析的精確座標；未使用地址搜尋。");
+      notifyFailure("Google 頁面沒有可解析的精確座標；未使用地址搜尋。" + diagnosticHint());
     }
   });
 }
@@ -90,6 +99,7 @@ function firstUrl(value) {
 
 function resolveUrl(url, visited, depth, callback) {
   if (depth > 4 || visited.indexOf(url) !== -1) {
+    debugLog("stop", { depth: depth, reason: depth > 4 ? "max-depth" : "redirect-loop" });
     callback(null);
     return;
   }
@@ -97,11 +107,18 @@ function resolveUrl(url, visited, depth, callback) {
   // Full Google Maps URLs may already expose coordinates.
   const directPoint = extractCoordinates(url);
   if (directPoint) {
+    debugLog("coordinate", {
+      depth: depth,
+      parser: directPoint.source,
+      lat: directPoint.lat,
+      lng: directPoint.lng
+    });
     callback(directPoint);
     return;
   }
 
   const nextVisited = visited.concat(url);
+  debugLog("fetch", { depth: depth, url: clip(url, 300) });
 
   $httpClient.get({
     url: url,
@@ -112,18 +129,36 @@ function resolveUrl(url, visited, depth, callback) {
     },
     "auto-redirect": false,
     timeout: 8
-  }, function (_error, response, body) {
+  }, function (error, response, body) {
     const location = response && getHeader(response.headers, "location");
     const responseUrl = response && (response.url || response.finalUrl);
+    const status = response && (response.status || response.statusCode);
+    const bodyText = String(body || "");
+
+    debugLog("response", {
+      depth: depth,
+      status: status || "none",
+      error: error ? clip(valueToString(error), 180) : "",
+      location: clip(location, 260),
+      responseUrl: clip(responseUrl, 260),
+      bodyLength: bodyText.length
+    });
+
     const page = [
       url,
       responseUrl || "",
       location || "",
-      String(body || "")
+      bodyText
     ].join("\n");
     const point = extractCoordinates(page);
 
     if (point) {
+      debugLog("coordinate", {
+        depth: depth,
+        parser: point.source,
+        lat: point.lat,
+        lng: point.lng
+      });
       callback(point);
       return;
     }
@@ -131,11 +166,18 @@ function resolveUrl(url, visited, depth, callback) {
     if (location) {
       const nextUrl = absoluteUrl(location, url);
       if (nextUrl && nextVisited.indexOf(nextUrl) === -1) {
+        debugLog("redirect", { depth: depth, nextUrl: clip(nextUrl, 300) });
         resolveUrl(nextUrl, nextVisited, depth + 1, callback);
         return;
       }
     }
 
+    debugLog("stop", {
+      depth: depth,
+      reason: error ? "http-error" : "no-coordinate",
+      status: status || "none",
+      bodyLength: bodyText.length
+    });
     callback(null);
   });
 }
@@ -209,6 +251,7 @@ function appleUrl(point) {
 
 function notifySuccess(point) {
   const coordinate = point.lat + "," + point.lng;
+  debugLog("success", { coordinate: coordinate, parser: point.source });
   $notification.post(
     "Google → Apple Maps",
     coordinate + "  (" + point.source + ")",
@@ -220,10 +263,12 @@ function notifySuccess(point) {
 
 function notifyFailure(message) {
   if (isHttpRequest) {
+    debugLog("passthrough", { reason: message });
     $done({});
     return;
   }
 
+  debugLog("failure", { reason: message });
   $notification.post("Google → Apple Maps", "轉換失敗", message);
   $done();
 }
@@ -263,4 +308,36 @@ function absoluteUrl(location, base) {
   } catch (_) {
     return location;
   }
+}
+
+function debugLog(stage, details) {
+  let payload = "";
+
+  try {
+    payload = JSON.stringify(details || {});
+  } catch (_) {
+    payload = String(details || "");
+  }
+
+  const line = stage + " " + payload;
+  traceLines.push(line);
+  if (traceLines.length > 20) traceLines.shift();
+  console.log(LOG_PREFIX + " " + line);
+}
+
+function diagnosticHint() {
+  const tail = traceLines.slice(-2).join(" | ");
+  return "\n診斷：" + clip(tail || "無記錄", 420) + "\n完整記錄請在 Surge 日誌搜尋 " + LOG_PREFIX;
+}
+
+function describeType(value) {
+  if (Array.isArray(value)) return "array";
+  if (value === null) return "null";
+  return typeof value;
+}
+
+function clip(value, maxLength) {
+  const text = valueToString(value);
+  if (!text) return "";
+  return text.length > maxLength ? text.slice(0, maxLength) + "…" : text;
 }
