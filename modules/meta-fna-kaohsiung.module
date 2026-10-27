@@ -1,0 +1,14 @@
+#!name=Meta 圖片影片改走 HiNet 高雄快取（家用 Wi-Fi）
+#!desc=只在家裡網路（路由器 192.168.8.1）把 FB、IG、Threads 的香港與 HiNet 台北快取網址改寫成 HiNet 高雄快取（fkhh1-1），並擋掉這些網域的 QUIC 讓 App 改走 TCP；行動網路照常直連。需要 MITM；若大量破圖代表 App 綁定憑證，請停用。
+#!homepage=https://github.com/orsmile/surge-modules
+
+[Rule]
+# QUIC cannot be decrypted; at home reject it so the apps fall back to TCP for these hosts
+AND,((PROTOCOL,QUIC),(DOMAIN-SUFFIX,fbcdn.net),(SUBNET,ROUTER:192.168.8.1)),REJECT-NO-DROP
+AND,((PROTOCOL,QUIC),(DOMAIN-SUFFIX,cdninstagram.com),(SUBNET,ROUTER:192.168.8.1)),REJECT-NO-DROP
+
+[Script]
+[Meta 高雄快取] 改寫 = type=http-request,pattern=^https:\/\/((video|scontent|instagram)-hkg\d+-\d+\.(xx\.fbcdn\.net|cdninstagram\.com)|(video|scontent|instagram)\.ftpe[78]-\d\.fna\.fbcdn\.net)\/,script-path=https://orsmile.github.io/surge-modules/scripts/meta-fna-kaohsiung.js,timeout=5
+
+[MITM]
+hostname = %APPEND% *.xx.fbcdn.net, *.cdninstagram.com, *.ftpe7-*.fna.fbcdn.net, *.ftpe8-*.fna.fbcdn.net
